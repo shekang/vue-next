@@ -1,4 +1,4 @@
-import { createApp, ref, nextTick } from '../src'
+import { createApp, ref, nextTick, reactive } from '../src'
 
 describe('compiler + runtime integration', () => {
   it('should support runtime template compilation', () => {
@@ -207,5 +207,78 @@ describe('compiler + runtime integration', () => {
       '[Vue warn]: Failed to mount app: mount target selector returned null.'
     ).toHaveBeenWarned()
     document.querySelector = origin
+  })
+
+  // #1813
+  it('should not report an error when "0" as patchFlag value', async () => {
+    const container = document.createElement('div')
+    const target = document.createElement('div')
+    const count = ref(0)
+    const origin = document.querySelector
+    document.querySelector = jest.fn().mockReturnValue(target)
+
+    const App = {
+      template: `
+      <teleport v-if="count < 2" to="#target">
+        <div>
+          <div>{{ count }}</div>
+        </div>
+      </teleport>
+      `,
+      data() {
+        return {
+          count
+        }
+      }
+    }
+    createApp(App).mount(container)
+    expect(container.innerHTML).toBe(`<!--teleport start--><!--teleport end-->`)
+    expect(target.innerHTML).toBe(`<div><div>0</div></div>`)
+
+    count.value++
+    await nextTick()
+    expect(container.innerHTML).toBe(`<!--teleport start--><!--teleport end-->`)
+    expect(target.innerHTML).toBe(`<div><div>1</div></div>`)
+
+    count.value++
+    await nextTick()
+    expect(container.innerHTML).toBe(`<!--v-if-->`)
+    expect(target.innerHTML).toBe(``)
+
+    document.querySelector = origin
+  })
+
+  test('v-if + v-once', async () => {
+    const ok = ref(true)
+    const App = {
+      setup() {
+        return { ok }
+      },
+      template: `<div>{{ ok }}<div v-if="ok" v-once>{{ ok }}</div></div>`
+    }
+    const container = document.createElement('div')
+    createApp(App).mount(container)
+
+    expect(container.innerHTML).toBe(`<div>true<div>true</div></div>`)
+    ok.value = false
+    await nextTick()
+    expect(container.innerHTML).toBe(`<div>false<div>true</div></div>`)
+  })
+
+  test('v-for + v-once', async () => {
+    const list = reactive([1])
+    const App = {
+      setup() {
+        return { list }
+      },
+      template: `<div>{{ list.length }}<div v-for="i in list" v-once>{{ i }}</div></div>`
+    }
+    const container = document.createElement('div')
+    createApp(App).mount(container)
+
+    expect(container.innerHTML).toBe(`<div>1<div>1</div></div>`)
+    list.push(2)
+    await nextTick()
+    expect(container.innerHTML).toBe(`<div>2<div>1</div></div>`)
   })
 })
